@@ -235,33 +235,53 @@ class MCPConstructionPlanner:
         """Convert instruction to construction plan and execute it step by step"""
         print(f"\nPlanning construction: '{instruction}'")
         
-        # Convert instruction to construction plan
         plan = self.plan_construction(instruction)
-        
         if not plan:
             print("Failed to create construction plan")
             return
         
-        print(f"\nGenerated construction plan with {len(plan)} steps:")
-        print(json.dumps(plan, indent=2))
-        
-        # Execute plan step by step
-        print(f"\nExecuting construction plan...")
-        for i, step in enumerate(plan, 1):
-            tool_name = step.get("tool", "unknown")
+        print(f"\nGenerated construction plan with {len(plan)} top-level steps.")
+
+        import time
+
+        def send_step(step):
+            """Send a single step, recursively if it contains nested JSON"""
+            tool_name = step.get("tool")
             args = step.get("args", {})
-            
-            print(f"\nStep {i}/{len(plan)}: {tool_name}")
-            print(f"Arguments: {json.dumps(args, indent=2)}")
-            
-            response = self.send_mcp_tool_call(tool_name, args)
-            print(f"Server response: {response}")
-            
-            # Add a small delay between steps for better readability
-            import time
-            time.sleep(0.5)
-        
-        print(f"\nConstruction plan completed!")
+
+            if tool_name == "send-chat":
+                message = args.get("message", "").strip()
+                # Check if the message is actually a JSON plan
+                if message.startswith("[") or message.startswith("{"):
+                    try:
+                        nested_plan = json.loads(message)
+                        if isinstance(nested_plan, list):
+                            for sub_step in nested_plan:
+                                send_step(sub_step)  # recursion
+                        elif isinstance(nested_plan, dict):
+                            send_step(nested_plan)
+                        else:
+                            # fallback: send as chat
+                            self.send_mcp_tool_call("send-chat", {"message": message})
+                    except json.JSONDecodeError:
+                        # Not JSON, just send as chat
+                        self.send_mcp_tool_call("send-chat", {"message": message})
+                else:
+                    # Normal Minecraft command
+                    self.send_mcp_tool_call("send-chat", {"message": message})
+            else:
+                # Other tools
+                self.send_mcp_tool_call(tool_name, args)
+
+            # small delay between steps
+            time.sleep(0.1)
+
+        # Execute each top-level step
+        for step in plan:
+            send_step(step)
+
+        print("\nConstruction plan completed!")
+
     
     def run_interactive(self):
         """Run interactive construction planning mode"""
@@ -304,3 +324,5 @@ if __name__ == "__main__":
     
     planner = MCPConstructionPlanner()
     planner.run_interactive()
+
+
