@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-import time
 """
-MCP Construction Planner
-Converts complex construction instructions into detailed step-by-step plans with multiple tool calls
+MCP Universal Planner
+Converts ANY instruction into detailed step-by-step plans with multiple tool calls
+Handles constructions, movement, interactions, and any other Minecraft activities
 """
 
 import os
@@ -10,6 +10,7 @@ import json
 import subprocess
 import sys
 import signal
+import time
 from dotenv import load_dotenv
 from openai import OpenAI
 
@@ -21,62 +22,104 @@ client = OpenAI(
     api_key=os.environ.get("OPENAI_API_KEY"),
 )
 
-CONSTRUCTION_PLANNER_PROMPT = """You are an expert Minecraft architect controlling a bot connected to an MCP server. For **every instruction**, no matter how complex:
+UNIVERSAL_PLANNER_PROMPT = """You are an expert Minecraft bot controller connected to an MCP server. For **ANY instruction**, no matter how complex or simple:
 
-1. **Always generate a complete sequence of tool calls** that fully executes the task.  
-2. **Do not output the construction plan as text** or chat; it should only be executed via tool calls.  
-3. **Standard Minecraft commands** (like /fill, /tp, /say, /gamemode, etc.) must be sent using the `send-chat` tool.  
-4. **Create high-quality, realistic constructions** with proper architectural principles:
-   - Use appropriate materials for different building types
-   - Include proper foundations, walls, roofs, and details
-   - Add windows, doors, and decorative elements
-   - Use stairs, slabs, and different block types for texture
-   - Create proper proportions and realistic dimensions
-   - Include interior spaces and functional elements
-5. **Complex instructions must be broken down into multiple steps**, including:  
-   - Checking current position (`get-position`)  
-   - Gathering or equipping materials (`find-item`, `equip-item`) if needed  
-   - Moving to correct positions (`move-to-position`, `fly-to`)  
-   - Building foundations first, then walls, then roofs
-   - Adding details, windows, doors, and decorations
-   - Any other required commands to complete the instruction  
-6. **Always output a JSON array of tool calls**. No extra explanation or messages.  
-7. **Every tool call is executed** immediately by the bot. There is no "plan only" step.  
-8. **Keep responses concise** - use efficient /fill commands for large areas, /setblock for details.
+1. **Always generate a complete sequence of tool calls** that fully executes the task.
+2. **Do not output plans as text** - only execute via tool calls.
+3. **Standard Minecraft commands** (like /fill, /tp, /say, /gamemode, etc.) must be sent using the `send-chat` tool.
+4. **Available tools**:
+   - get-position, move-to-position, look-at, jump, move-in-direction, fly-to
+   - list-inventory, find-item, equip-item
+   - place-block, dig-block, get-block-info, find-block
+   - find-entity, read-chat, detect-gamemode
+   - send-chat (for any /command)
 
-**Architectural Guidelines:**
-- Houses: 3-4 blocks high, with windows, doors, and proper roofs
-- Castles: Large stone structures with towers, walls, and battlements
-- Modern buildings: Clean lines, glass windows, concrete/quartz materials
-- Medieval structures: Stone, wood, and decorative elements
-- Towers: Tall structures with proper foundations and tops
-- Bridges: Functional crossings with supports and railings
+**CRITICAL CONSTRUCTION RULE:**
+- **ALWAYS start constructions by creating a flat surface first**
+- Use /fill to clear and level the ground before building
+- Then build the structure on top of the flat surface
+- This ensures proper foundations and prevents floating structures
 
-Example:
+**For CONSTRUCTIONS, create high-quality, realistic buildings with:**
+- **FIRST: Create a flat foundation surface**
+- Proper architectural principles and realistic proportions
+- Multiple materials and textures (stone, wood, glass, etc.)
+- Detailed features: windows, doors, roofs, decorations
+- Interior spaces and functional elements
+- Use stairs, slabs, fences, and decorative blocks
+- Create proper foundations, walls, and roofs
+- Add landscaping and environmental details
 
-Instruction: "build a medieval castle at current position"
+**For MOVEMENT/FOLLOWING:**
+- Get current position first
+- Calculate relative movements
+- Use appropriate movement tools (walk, fly, jump)
+- Handle obstacles and terrain
 
-Output:
+**For INTERACTIONS:**
+- Check inventory and equipment
+- Find and interact with entities
+- Use appropriate tools for the task
+
+**For ANY TASK:**
+- Break down into logical steps
+- Use efficient commands
+- Handle edge cases and errors
+- Always output a JSON array of tool calls
+
+**Construction Examples:**
+
+Simple house (with flat surface):
 [
   { "tool": "get-position", "args": {} },
-  { "tool": "send-chat", "args": { "message": "/fill ~-15 ~ ~-15 ~15 ~-1 ~15 stone" } },
-  { "tool": "send-chat", "args": { "message": "/fill ~-12 ~ ~-12 ~12 ~8 ~12 stone_bricks" } },
-  { "tool": "send-chat", "args": { "message": "/fill ~-10 ~1 ~-10 ~10 ~7 ~10 air" } },
-  { "tool": "send-chat", "args": { "message": "/fill ~-12 ~9 ~-12 ~12 ~9 ~12 stone_brick_stairs" } },
-  { "tool": "send-chat", "args": { "message": "/fill ~-8 ~ ~-8 ~-8 ~12 ~-8 stone_bricks" } },
-  { "tool": "send-chat", "args": { "message": "/fill ~8 ~ ~-8 ~8 ~12 ~-8 stone_bricks" } },
-  { "tool": "send-chat", "args": { "message": "/fill ~-8 ~ ~8 ~-8 ~12 ~8 stone_bricks" } },
-  { "tool": "send-chat", "args": { "message": "/fill ~8 ~ ~8 ~8 ~12 ~8 stone_bricks" } },
-  { "tool": "send-chat", "args": { "message": "/setblock ~-6 ~1 ~-12 oak_door" } },
-  { "tool": "send-chat", "args": { "message": "/setblock ~-4 ~2 ~-12 glass_pane" } },
-  { "tool": "send-chat", "args": { "message": "/setblock ~-2 ~2 ~-12 glass_pane" } }
+  { "tool": "send-chat", "args": { "message": "/fill ~-6 ~-1 ~-6 ~6 ~-1 ~6 stone" } },
+  { "tool": "send-chat", "args": { "message": "/fill ~-4 ~ ~-4 ~4 ~3 ~4 stone_bricks" } },
+  { "tool": "send-chat", "args": { "message": "/fill ~-3 ~1 ~-3 ~3 ~2 ~3 air" } },
+  { "tool": "send-chat", "args": { "message": "/setblock ~-4 ~1 ~ oak_door" } },
+  { "tool": "send-chat", "args": { "message": "/setblock ~-2 ~1 ~-4 glass_pane" } },
+  { "tool": "send-chat", "args": { "message": "/setblock ~2 ~1 ~-4 glass_pane" } },
+  { "tool": "send-chat", "args": { "message": "/fill ~-4 ~4 ~-4 ~4 ~4 ~4 stone_brick_stairs" } }
 ]
+
+Medieval castle (with flat surface):
+[
+  { "tool": "get-position", "args": {} },
+  { "tool": "send-chat", "args": { "message": "/fill ~-25 ~-1 ~-25 ~25 ~-1 ~25 stone" } },
+  { "tool": "send-chat", "args": { "message": "/fill ~-20 ~ ~-20 ~20 ~12 ~20 stone_bricks" } },
+  { "tool": "send-chat", "args": { "message": "/fill ~-18 ~1 ~-18 ~18 ~11 ~18 air" } },
+  { "tool": "send-chat", "args": { "message": "/fill ~-20 ~13 ~-20 ~20 ~13 ~20 stone_brick_stairs" } },
+  { "tool": "send-chat", "args": { "message": "/fill ~-12 ~ ~-12 ~-12 ~15 ~-12 stone_bricks" } },
+  { "tool": "send-chat", "args": { "message": "/fill ~12 ~ ~-12 ~12 ~15 ~-12 stone_bricks" } },
+  { "tool": "send-chat", "args": { "message": "/fill ~-12 ~ ~12 ~-12 ~15 ~12 stone_bricks" } },
+  { "tool": "send-chat", "args": { "message": "/fill ~12 ~ ~12 ~12 ~15 ~12 stone_bricks" } },
+  { "tool": "send-chat", "args": { "message": "/setblock ~-8 ~1 ~-20 oak_door" } },
+  { "tool": "send-chat", "args": { "message": "/setblock ~-6 ~2 ~-20 glass_pane" } },
+  { "tool": "send-chat", "args": { "message": "/setblock ~-4 ~2 ~-20 glass_pane" } },
+  { "tool": "send-chat", "args": { "message": "/setblock ~-2 ~2 ~-20 glass_pane" } },
+  { "tool": "send-chat", "args": { "message": "/setblock ~0 ~2 ~-20 glass_pane" } },
+  { "tool": "send-chat", "args": { "message": "/setblock ~2 ~2 ~-20 glass_pane" } },
+  { "tool": "send-chat", "args": { "message": "/setblock ~4 ~2 ~-20 glass_pane" } },
+  { "tool": "send-chat", "args": { "message": "/setblock ~6 ~2 ~-20 glass_pane" } },
+  { "tool": "send-chat", "args": { "message": "/fill ~-20 ~1 ~-8 ~-20 ~1 ~8 stone_brick_wall" } },
+  { "tool": "send-chat", "args": { "message": "/fill ~-20 ~2 ~-8 ~-20 ~2 ~8 stone_brick_wall" } }
+]
+
+**Movement Examples:**
+
+Follow player:
+[
+  { "tool": "get-position", "args": {} },
+  { "tool": "find-entity", "args": { "entity_type": "player" } },
+  { "tool": "move-to-position", "args": { "x": "~", "y": "~", "z": "~" } }
+]
+
+**Always output a JSON array of tool calls. No explanations.**
 
 Instruction: "{instruction}"
 
 Respond ONLY with a JSON array of tool calls."""
 
-class MCPConstructionPlanner:
+class MCPUniversalPlanner:
     def __init__(self):
         self.mcp_process = None
         self.setup_signal_handlers()
@@ -92,14 +135,14 @@ class MCPConstructionPlanner:
             self.mcp_process.terminate()
         sys.exit(0)
     
-    def plan_construction(self, instruction: str) -> list:
-        """Convert a complex construction instruction into a detailed step-by-step plan"""
+    def plan_instruction(self, instruction: str) -> list:
+        """Convert ANY instruction into a detailed step-by-step plan"""
         try:
             # Replace the placeholder in the prompt with the actual instruction
-            prompt = CONSTRUCTION_PLANNER_PROMPT.replace("{instruction}", instruction)
+            prompt = UNIVERSAL_PLANNER_PROMPT.replace("{instruction}", instruction)
             
             response = client.chat.completions.create(
-                model="gpt-4o-mini",  # Using OpenAI's model instead of Herdora
+                model="gpt-4o-mini",
                 messages=[
                     {
                         "role": "system",
@@ -110,7 +153,7 @@ class MCPConstructionPlanner:
                         "content": f"Convert this instruction: {instruction}",
                     },
                 ],
-                max_tokens=512,  # Reduced to prevent truncation
+                max_tokens=1024,  # Increased for more detailed plans
             )
             
             # Get the response content
@@ -165,7 +208,7 @@ class MCPConstructionPlanner:
                 return [{"tool": "send-chat", "args": {"message": content}}]  # Fallback
                 
         except Exception as e:
-            print(f"Error planning construction: {e}")
+            print(f"Error planning instruction: {e}")
             return None
     
     def start_mcp_server(self):
@@ -234,10 +277,16 @@ class MCPConstructionPlanner:
             print(f"Error sending tool call: {e}")
     
     def run_interactive(self):
-        """Run the interactive construction planner"""
-        print("��️ MCP Construction Planner")
+        """Run the interactive universal planner"""
+        print("🤖 MCP Universal Planner")
         print("=" * 40)
-        print("Enter complex construction instructions to convert into detailed plans")
+        print("Enter ANY instruction - constructions, movement, interactions, etc.")
+        print("Examples:")
+        print("  - 'build a medieval castle'")
+        print("  - 'follow me'")
+        print("  - 'gather wood and build a house'")
+        print("  - 'create a garden with flowers'")
+        print("  - 'build a bridge across the river'")
         print("Type 'quit' to exit")
         print("-" * 40)
         
@@ -246,7 +295,7 @@ class MCPConstructionPlanner:
         
         while True:
             try:
-                instruction = input("\nEnter construction instruction: ").strip()
+                instruction = input("\nEnter instruction: ").strip()
                 
                 if instruction.lower() in ['quit', 'exit', 'q']:
                     print("Goodbye!")
@@ -256,7 +305,7 @@ class MCPConstructionPlanner:
                     continue
                 
                 print(f"\nPlanning: {instruction}")
-                plan = self.plan_construction(instruction)
+                plan = self.plan_instruction(instruction)
                 
                 if plan:
                     print(f"\nGenerated {len(plan)} tool calls - executing immediately...")
@@ -267,9 +316,9 @@ class MCPConstructionPlanner:
                         self.send_tool_call(tool_call)
                         time.sleep(0.5)  # Small delay between commands
                     
-                    print("\nConstruction completed!")
+                    print("\nInstruction completed!")
                 else:
-                    print("Failed to generate construction plan")
+                    print("Failed to generate instruction plan")
                     
             except KeyboardInterrupt:
                 self.signal_handler(signal.SIGINT, None)
@@ -279,10 +328,10 @@ class MCPConstructionPlanner:
 def main():
     """Main function"""
     try:
-        planner = MCPConstructionPlanner()
+        planner = MCPUniversalPlanner()
         planner.run_interactive()
     except Exception as e:
-        print(f"Failed to start construction planner: {e}")
+        print(f"Failed to start universal planner: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":

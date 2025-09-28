@@ -19,8 +19,9 @@ BASE_URL = "https://pygmalion.herdora.com/v1"
 
 # Initialize Herdora client
 client = OpenAI(
-    base_url=BASE_URL,
-    api_key=os.environ.get("HERDORA_API_KEY"),
+    #base_url=BASE_URL,
+    #api_key=os.environ.get("HERDORA_API_KEY"),
+    api_key=os.environ.get("OPENAI_API_KEY"),
 )
 
 MCP_TOOL_PROMPT = """You are controlling a Minecraft bot connected to an MCP server. Your goal is to **convert every complex instruction into a list of MCP tool calls**, then send them to the server. Follow these rules:
