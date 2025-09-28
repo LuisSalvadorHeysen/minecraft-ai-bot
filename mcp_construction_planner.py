@@ -23,61 +23,24 @@ client = OpenAI(
     api_key=os.environ.get("HERDORA_API_KEY"),
 )
 
-CONSTRUCTION_PLANNER_PROMPT = """You are controlling a Minecraft bot connected to an MCP server. Your goal is to **convert any complex instruction into a full, step-by-step plan** of executable commands. Follow these rules:
+CONSTRUCTION_PLANNER_PROMPT = """You are controlling a Minecraft bot connected to an MCP server. For **every instruction**, no matter how complex:
 
-1. **Always produce a JSON array of tool calls**. Each tool call is an object:
-   {
-     "tool": "tool_name",
-     "args": { ... }
-   }
-
-2. **Available tools**:
-   - get-position
-   - move-to-position
-   - look-at
-   - jump
-   - move-in-direction
-   - fly-to
-   - list-inventory
-   - find-item
-   - equip-item
-   - place-block
-   - dig-block
-   - get-block-info
-   - find-block
-   - find-entity
-   - send-chat
-   - read-chat
-   - detect-gamemode
-
-3. **Standard Minecraft commands** (like /fill, /tp, /gamemode, /say, etc.) should be executed through the **send-chat tool**.
-
-4. **Complex instructions** should be broken down into multiple steps. For example:
-   - Gather materials if needed
-   - Move to the correct location
-   - Place blocks layer by layer
-   - Use /fill and /tp commands whenever possible for efficiency
-   - Check inventory and equip items as needed
-
-5. **Always compute relative coordinates** based on the bot's current position.
-
-6. **Include all steps needed to fully complete the instruction**, even if it requires multiple tool calls.
-
-7. **After sending commands**, the bot will print server responses. Assume they will be handled automatically.
-
-8. **Only output a JSON array of tool calls**. Do not add extra explanation or text.
+1. **Always generate a complete sequence of tool calls** that fully executes the task.  
+2. **Do not output the construction plan as text** or chat; it should only be executed via tool calls.  
+3. **Standard Minecraft commands** (like /fill, /tp, /say, /gamemode, etc.) must be sent using the `send-chat` tool.  
+4. **Complex instructions must be broken down into multiple steps**, including:  
+   - Checking current position (`get-position`)  
+   - Gathering or equipping materials (`find-item`, `equip-item`) if needed  
+   - Moving to correct positions (`move-to-position`, `fly-to`)  
+   - Placing blocks layer by layer (`place-block` or `/fill`)  
+   - Any other required commands to complete the instruction  
+5. **Always output a JSON array of tool calls**. No extra explanation or messages.  
+6. **Every tool call is executed** immediately by the bot. There is no "plan only" step.  
+7. **Keep responses concise** - use efficient /fill commands instead of many individual commands.
 
 Example:
 
-Instruction: "build a simple 5x5x5 stone house at current location"  
-
-Output:
-[
-  { "tool": "get-position", "args": {} },
-  { "tool": "send-chat", "args": { "message": "/fill ~-2 ~ ~-2 ~2 ~4 ~2 stone" } }
-]
-
-Instruction: "build an Egyptian pyramid at current location"  
+Instruction: "build an Egyptian pyramid at current position"
 
 Output:
 [
@@ -90,8 +53,6 @@ Output:
   { "tool": "send-chat", "args": { "message": "/fill ~-2 ~5 ~-2 ~2 ~5 ~2 sandstone" } },
   { "tool": "send-chat", "args": { "message": "/fill ~ ~6 ~ ~ ~6 ~ gold_block" } }
 ]
-
-Now, convert the next instruction I give you into a **complete multi-step JSON array of tool calls**.
 
 Instruction: "{instruction}"
 
@@ -136,22 +97,58 @@ class MCPConstructionPlanner:
                         "content": [{"type": "text", "text": f"Convert this instruction: {instruction}"}],
                     },
                 ],
-                max_tokens=1024,  # Increased for complex plans
+                max_tokens=512,  # Reduced to prevent truncation
             )
             
             # Get the response content
             content = response.choices[0].message.content.strip()
+            print(f"DEBUG: Raw AI response length: {len(content)}")
             
             # Try to parse as JSON
             try:
                 plan = json.loads(content)
                 if isinstance(plan, list):
+                    print(f"DEBUG: Successfully parsed {len(plan)} tool calls")
                     return plan
                 else:
                     print(f"Warning: Response is not a list: {plan}")
                     return [{"tool": "send-chat", "args": {"message": content}}]  # Fallback
-            except json.JSONDecodeError:
-                print(f"Warning: Could not parse JSON response: {content}")
+            except json.JSONDecodeError as e:
+                print(f"DEBUG: JSON decode error: {e}")
+                
+                # Try to extract JSON from the content if it's wrapped in text
+                try:
+                    # Look for JSON array in the content
+                    start_idx = content.find('[')
+                    end_idx = content.rfind(']') + 1
+                    if start_idx != -1 and end_idx != -1:
+                        json_str = content[start_idx:end_idx]
+                        print(f"DEBUG: Extracted JSON string length: {len(json_str)}")
+                        plan = json.loads(json_str)
+                        if isinstance(plan, list):
+                            print(f"DEBUG: Successfully parsed {len(plan)} tool calls from extracted JSON")
+                            return plan
+                except Exception as extract_error:
+                    print(f"DEBUG: JSON extraction failed: {extract_error}")
+                
+                # If JSON is truncated, try to fix it
+                try:
+                    # Find the last complete tool call
+                    last_complete_idx = content.rfind('}')
+                    if last_complete_idx != -1:
+                        # Try to find the last complete array element
+                        truncated_content = content[:last_complete_idx + 1]
+                        # Add closing bracket if missing
+                        if not truncated_content.endswith(']'):
+                            truncated_content += ']'
+                        print(f"DEBUG: Trying to fix truncated JSON: {truncated_content[-50:]}...")
+                        plan = json.loads(truncated_content)
+                        if isinstance(plan, list):
+                            print(f"DEBUG: Successfully parsed {len(plan)} tool calls from truncated JSON")
+                            return plan
+                except Exception as fix_error:
+                    print(f"DEBUG: JSON truncation fix failed: {fix_error}")
+                
                 return [{"tool": "send-chat", "args": {"message": content}}]  # Fallback
                 
         except Exception as e:
@@ -233,60 +230,39 @@ class MCPConstructionPlanner:
     
     def execute_construction_plan(self, instruction: str):
         """Convert instruction to construction plan and execute it step by step"""
-        print(f"\nPlanning construction: '{instruction}'")
+        print(f"\nExecuting construction: '{instruction}'")
         
+        # Convert instruction to construction plan
         plan = self.plan_construction(instruction)
+        
         if not plan:
             print("Failed to create construction plan")
             return
         
-        print(f"\nGenerated construction plan with {len(plan)} top-level steps.")
-
-        import time
-
-        def send_step(step):
-            """Send a single step, recursively if it contains nested JSON"""
-            tool_name = step.get("tool")
+        print(f"\nGenerated {len(plan)} tool calls - executing immediately...")
+        
+        # Execute plan step by step immediately
+        for i, step in enumerate(plan, 1):
+            tool_name = step.get("tool", "unknown")
             args = step.get("args", {})
-
-            if tool_name == "send-chat":
-                message = args.get("message", "").strip()
-                # Check if the message is actually a JSON plan
-                if message.startswith("[") or message.startswith("{"):
-                    try:
-                        nested_plan = json.loads(message)
-                        if isinstance(nested_plan, list):
-                            for sub_step in nested_plan:
-                                send_step(sub_step)  # recursion
-                        elif isinstance(nested_plan, dict):
-                            send_step(nested_plan)
-                        else:
-                            # fallback: send as chat
-                            self.send_mcp_tool_call("send-chat", {"message": message})
-                    except json.JSONDecodeError:
-                        # Not JSON, just send as chat
-                        self.send_mcp_tool_call("send-chat", {"message": message})
-                else:
-                    # Normal Minecraft command
-                    self.send_mcp_tool_call("send-chat", {"message": message})
-            else:
-                # Other tools
-                self.send_mcp_tool_call(tool_name, args)
-
-            # small delay between steps
-            time.sleep(0.1)
-
-        # Execute each top-level step
-        for step in plan:
-            send_step(step)
-
-        print("\nConstruction plan completed!")
-
+            
+            print(f"\nStep {i}/{len(plan)}: {tool_name}")
+            if args:
+                print(f"Args: {json.dumps(args, indent=2)}")
+            
+            response = self.send_mcp_tool_call(tool_name, args)
+            print(f"Response: {response}")
+            
+            # Add a small delay between steps for better readability
+            import time
+            time.sleep(0.5)
+        
+        print(f"\nConstruction completed!")
     
     def run_interactive(self):
         """Run interactive construction planning mode"""
         print("MCP Construction Planner started")
-        print("Converts complex construction instructions into detailed step-by-step plans")
+        print("Converts complex construction instructions into immediate execution")
         print("(Press Ctrl+C to exit)")
         
         # Start MCP server
@@ -303,7 +279,7 @@ class MCPConstructionPlanner:
                 if instruction.lower() in ['quit', 'exit', 'q']:
                     break
                 
-                # Execute the construction plan
+                # Execute the construction plan immediately
                 self.execute_construction_plan(instruction)
                 
             except KeyboardInterrupt:
@@ -324,5 +300,3 @@ if __name__ == "__main__":
     
     planner = MCPConstructionPlanner()
     planner.run_interactive()
-
-
