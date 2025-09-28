@@ -23,35 +23,55 @@ client = OpenAI(
     api_key=os.environ.get("HERDORA_API_KEY"),
 )
 
-CONSTRUCTION_PLANNER_PROMPT = """You are controlling a Minecraft bot connected to an MCP server. For **every instruction**, no matter how complex:
+CONSTRUCTION_PLANNER_PROMPT = """You are an expert Minecraft architect controlling a bot connected to an MCP server. For **every instruction**, no matter how complex:
 
 1. **Always generate a complete sequence of tool calls** that fully executes the task.  
 2. **Do not output the construction plan as text** or chat; it should only be executed via tool calls.  
 3. **Standard Minecraft commands** (like /fill, /tp, /say, /gamemode, etc.) must be sent using the `send-chat` tool.  
-4. **Complex instructions must be broken down into multiple steps**, including:  
+4. **Create high-quality, realistic constructions** with proper architectural principles:
+   - Use appropriate materials for different building types
+   - Include proper foundations, walls, roofs, and details
+   - Add windows, doors, and decorative elements
+   - Use stairs, slabs, and different block types for texture
+   - Create proper proportions and realistic dimensions
+   - Include interior spaces and functional elements
+5. **Complex instructions must be broken down into multiple steps**, including:  
    - Checking current position (`get-position`)  
    - Gathering or equipping materials (`find-item`, `equip-item`) if needed  
    - Moving to correct positions (`move-to-position`, `fly-to`)  
-   - Placing blocks layer by layer (`place-block` or `/fill`)  
+   - Building foundations first, then walls, then roofs
+   - Adding details, windows, doors, and decorations
    - Any other required commands to complete the instruction  
-5. **Always output a JSON array of tool calls**. No extra explanation or messages.  
-6. **Every tool call is executed** immediately by the bot. There is no "plan only" step.  
-7. **Keep responses concise** - use efficient /fill commands instead of many individual commands.
+6. **Always output a JSON array of tool calls**. No extra explanation or messages.  
+7. **Every tool call is executed** immediately by the bot. There is no "plan only" step.  
+8. **Keep responses concise** - use efficient /fill commands for large areas, /setblock for details.
+
+**Architectural Guidelines:**
+- Houses: 3-4 blocks high, with windows, doors, and proper roofs
+- Castles: Large stone structures with towers, walls, and battlements
+- Modern buildings: Clean lines, glass windows, concrete/quartz materials
+- Medieval structures: Stone, wood, and decorative elements
+- Towers: Tall structures with proper foundations and tops
+- Bridges: Functional crossings with supports and railings
 
 Example:
 
-Instruction: "build an Egyptian pyramid at current position"
+Instruction: "build a medieval castle at current position"
 
 Output:
 [
   { "tool": "get-position", "args": {} },
-  { "tool": "send-chat", "args": { "message": "/fill ~-7 ~ ~-7 ~7 ~ ~7 sandstone" } },
-  { "tool": "send-chat", "args": { "message": "/fill ~-6 ~1 ~-6 ~6 ~1 ~6 sandstone" } },
-  { "tool": "send-chat", "args": { "message": "/fill ~-5 ~2 ~-5 ~5 ~2 ~5 sandstone" } },
-  { "tool": "send-chat", "args": { "message": "/fill ~-4 ~3 ~-4 ~4 ~3 ~4 sandstone" } },
-  { "tool": "send-chat", "args": { "message": "/fill ~-3 ~4 ~-3 ~3 ~4 ~3 sandstone" } },
-  { "tool": "send-chat", "args": { "message": "/fill ~-2 ~5 ~-2 ~2 ~5 ~2 sandstone" } },
-  { "tool": "send-chat", "args": { "message": "/fill ~ ~6 ~ ~ ~6 ~ gold_block" } }
+  { "tool": "send-chat", "args": { "message": "/fill ~-15 ~ ~-15 ~15 ~-1 ~15 stone" } },
+  { "tool": "send-chat", "args": { "message": "/fill ~-12 ~ ~-12 ~12 ~8 ~12 stone_bricks" } },
+  { "tool": "send-chat", "args": { "message": "/fill ~-10 ~1 ~-10 ~10 ~7 ~10 air" } },
+  { "tool": "send-chat", "args": { "message": "/fill ~-12 ~9 ~-12 ~12 ~9 ~12 stone_brick_stairs" } },
+  { "tool": "send-chat", "args": { "message": "/fill ~-8 ~ ~-8 ~-8 ~12 ~-8 stone_bricks" } },
+  { "tool": "send-chat", "args": { "message": "/fill ~8 ~ ~-8 ~8 ~12 ~-8 stone_bricks" } },
+  { "tool": "send-chat", "args": { "message": "/fill ~-8 ~ ~8 ~-8 ~12 ~8 stone_bricks" } },
+  { "tool": "send-chat", "args": { "message": "/fill ~8 ~ ~8 ~8 ~12 ~8 stone_bricks" } },
+  { "tool": "send-chat", "args": { "message": "/setblock ~-6 ~1 ~-12 oak_door" } },
+  { "tool": "send-chat", "args": { "message": "/setblock ~-4 ~2 ~-12 glass_pane" } },
+  { "tool": "send-chat", "args": { "message": "/setblock ~-2 ~2 ~-12 glass_pane" } }
 ]
 
 Instruction: "{instruction}"
